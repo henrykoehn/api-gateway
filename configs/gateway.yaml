@@ -1,0 +1,6 @@
+server:
+  addr: ":8080"
+
+routes:
+  - path: "/api/hello/"
+    target: "http://localhost:9001"
