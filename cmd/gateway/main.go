@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/henrykoehn/api-gateway/internal/config"
+	"github.com/henrykoehn/api-gateway/internal/middleware"
 	"github.com/henrykoehn/api-gateway/internal/router"
 )
 
@@ -34,6 +35,7 @@ func main() {
 		slog.Error("failed to build router", "error", err)
 		os.Exit(1)
 	}
+	handler = middleware.Chain(handler, middleware.Recover, middleware.Logging)
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Addr,
