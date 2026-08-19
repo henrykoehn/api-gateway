@@ -4,3 +4,6 @@ server:
 routes:
   - path: "/api/hello/"
     target: "http://localhost:9001"
+    rate_limit:
+      requests_per_second: 2
+      burst: 3

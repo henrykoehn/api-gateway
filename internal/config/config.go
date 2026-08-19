@@ -25,6 +25,16 @@ type RouteConfig struct {
 	Path string `yaml:"path"`
 	// Target is the backend base URL, e.g. "http://localhost:9001".
 	Target string `yaml:"target"`
+	// RateLimit is optional; when nil, the route is not rate limited.
+	RateLimit *RateLimitConfig `yaml:"rate_limit,omitempty"`
+}
+
+// RateLimitConfig configures a token-bucket limiter for one route.
+type RateLimitConfig struct {
+	// RequestsPerSecond is the sustained refill rate.
+	RequestsPerSecond float64 `yaml:"requests_per_second"`
+	// Burst is the bucket capacity, i.e. the max requests allowed at once.
+	Burst int `yaml:"burst"`
 }
 
 // Load reads and validates the config file at path.
@@ -67,6 +77,15 @@ func (c *Config) validate() error {
 			return fmt.Errorf("routes[%d]: duplicate path %q", i, r.Path)
 		}
 		seen[r.Path] = true
+
+		if r.RateLimit != nil {
+			if r.RateLimit.RequestsPerSecond <= 0 {
+				return fmt.Errorf("routes[%d] (%s): rate_limit.requests_per_second must be > 0", i, r.Path)
+			}
+			if r.RateLimit.Burst <= 0 {
+				return fmt.Errorf("routes[%d] (%s): rate_limit.burst must be > 0", i, r.Path)
+			}
+		}
 	}
 
 	return nil
