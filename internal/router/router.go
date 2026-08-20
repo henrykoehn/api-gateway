@@ -3,9 +3,12 @@
 package router
 
 import (
+	"context"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/henrykoehn/api-gateway/internal/breaker"
 	"github.com/henrykoehn/api-gateway/internal/config"
 	"github.com/henrykoehn/api-gateway/internal/middleware"
 	"github.com/henrykoehn/api-gateway/internal/proxy"
@@ -16,15 +19,38 @@ import (
 const idleBucketTTL = 5 * time.Minute
 
 // Build constructs a ServeMux that routes each configured path prefix
-// to its backend's reverse proxy, applying per-route rate limiting
-// where configured.
+// to its backend's reverse proxy, applying per-route rate limiting and
+// circuit breaking where configured.
 func Build(cfg *config.Config) (http.Handler, error) {
 	mux := http.NewServeMux()
 
 	for _, route := range cfg.Routes {
-		handler, err := proxy.New(route.Target)
+		var brk *breaker.Breaker
+		if route.CircuitBreaker != nil {
+			brk = breaker.New(route.Target, breaker.Config{
+				FailureThreshold: route.CircuitBreaker.FailureThreshold,
+				ResetTimeout:     secondsToDuration(route.CircuitBreaker.ResetTimeoutSeconds),
+				SuccessThreshold: route.CircuitBreaker.SuccessThreshold,
+			})
+
+			if hc := route.CircuitBreaker.HealthCheck; hc != nil {
+				checker := breaker.NewHealthChecker(
+					joinURL(route.Target, hc.Path),
+					secondsToDuration(hc.IntervalSeconds),
+					secondsToDuration(hc.TimeoutSeconds),
+					brk,
+				)
+				go checker.Run(context.Background())
+			}
+		}
+
+		handler, err := proxy.New(route.Target, brk)
 		if err != nil {
 			return nil, err
+		}
+
+		if brk != nil {
+			handler = middleware.CircuitBreaker(brk)(handler)
 		}
 
 		if route.RateLimit != nil {
@@ -48,4 +74,14 @@ func evictIdleBuckets(limiter *ratelimiter.Limiter) {
 	for range ticker.C {
 		limiter.EvictIdle(idleBucketTTL)
 	}
+}
+
+func secondsToDuration(s float64) time.Duration {
+	return time.Duration(s * float64(time.Second))
+}
+
+// joinURL concatenates a target base URL and a health check path
+// without producing a double slash.
+func joinURL(target, path string) string {
+	return strings.TrimSuffix(target, "/") + "/" + strings.TrimPrefix(path, "/")
 }

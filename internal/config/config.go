@@ -27,6 +27,9 @@ type RouteConfig struct {
 	Target string `yaml:"target"`
 	// RateLimit is optional; when nil, the route is not rate limited.
 	RateLimit *RateLimitConfig `yaml:"rate_limit,omitempty"`
+	// CircuitBreaker is optional; when nil, the route has no breaker
+	// protection (a slow/broken backend is called on every request).
+	CircuitBreaker *BreakerConfig `yaml:"circuit_breaker,omitempty"`
 }
 
 // RateLimitConfig configures a token-bucket limiter for one route.
@@ -35,6 +38,31 @@ type RateLimitConfig struct {
 	RequestsPerSecond float64 `yaml:"requests_per_second"`
 	// Burst is the bucket capacity, i.e. the max requests allowed at once.
 	Burst int `yaml:"burst"`
+}
+
+// BreakerConfig configures a circuit breaker for one route's backend.
+// Durations are expressed in seconds (float64) rather than duration
+// strings to keep YAML parsing dependency-free.
+type BreakerConfig struct {
+	// FailureThreshold is consecutive failures before tripping open.
+	FailureThreshold int `yaml:"failure_threshold"`
+	// ResetTimeoutSeconds is how long to stay open before a half-open trial.
+	ResetTimeoutSeconds float64 `yaml:"reset_timeout_seconds"`
+	// SuccessThreshold is consecutive half-open successes required to close.
+	SuccessThreshold int `yaml:"success_threshold"`
+	// HealthCheck is optional; when nil, only the passive (live-traffic)
+	// signal drives the breaker.
+	HealthCheck *HealthCheckConfig `yaml:"health_check,omitempty"`
+}
+
+// HealthCheckConfig configures active polling of a backend.
+type HealthCheckConfig struct {
+	// Path is appended to the route's target to form the health URL.
+	Path string `yaml:"path"`
+	// IntervalSeconds is the time between checks.
+	IntervalSeconds float64 `yaml:"interval_seconds"`
+	// TimeoutSeconds bounds each individual check.
+	TimeoutSeconds float64 `yaml:"timeout_seconds"`
 }
 
 // Load reads and validates the config file at path.
@@ -84,6 +112,29 @@ func (c *Config) validate() error {
 			}
 			if r.RateLimit.Burst <= 0 {
 				return fmt.Errorf("routes[%d] (%s): rate_limit.burst must be > 0", i, r.Path)
+			}
+		}
+
+		if cb := r.CircuitBreaker; cb != nil {
+			if cb.FailureThreshold <= 0 {
+				return fmt.Errorf("routes[%d] (%s): circuit_breaker.failure_threshold must be > 0", i, r.Path)
+			}
+			if cb.ResetTimeoutSeconds <= 0 {
+				return fmt.Errorf("routes[%d] (%s): circuit_breaker.reset_timeout_seconds must be > 0", i, r.Path)
+			}
+			if cb.SuccessThreshold <= 0 {
+				return fmt.Errorf("routes[%d] (%s): circuit_breaker.success_threshold must be > 0", i, r.Path)
+			}
+			if hc := cb.HealthCheck; hc != nil {
+				if hc.Path == "" {
+					return fmt.Errorf("routes[%d] (%s): circuit_breaker.health_check.path is required", i, r.Path)
+				}
+				if hc.IntervalSeconds <= 0 {
+					return fmt.Errorf("routes[%d] (%s): circuit_breaker.health_check.interval_seconds must be > 0", i, r.Path)
+				}
+				if hc.TimeoutSeconds <= 0 {
+					return fmt.Errorf("routes[%d] (%s): circuit_breaker.health_check.timeout_seconds must be > 0", i, r.Path)
+				}
 			}
 		}
 	}

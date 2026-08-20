@@ -7,3 +7,11 @@ routes:
     rate_limit:
       requests_per_second: 2
       burst: 3
+    circuit_breaker:
+      failure_threshold: 2
+      reset_timeout_seconds: 3
+      success_threshold: 1
+      health_check:
+        path: "/"
+        interval_seconds: 1
+        timeout_seconds: 1
