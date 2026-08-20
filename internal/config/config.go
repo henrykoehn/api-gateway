@@ -11,12 +11,19 @@ import (
 // Config is the root of the gateway's configuration file.
 type Config struct {
 	Server ServerConfig  `yaml:"server"`
+	Auth   AuthConfig    `yaml:"auth"`
 	Routes []RouteConfig `yaml:"routes"`
 }
 
 // ServerConfig controls the gateway's own listener.
 type ServerConfig struct {
 	Addr string `yaml:"addr"`
+}
+
+// AuthConfig holds the shared JWT verification secret. Required only
+// if at least one route sets auth_required: true.
+type AuthConfig struct {
+	JWTSecret string `yaml:"jwt_secret"`
 }
 
 // RouteConfig maps an incoming path prefix to a backend target.
@@ -30,6 +37,8 @@ type RouteConfig struct {
 	// CircuitBreaker is optional; when nil, the route has no breaker
 	// protection (a slow/broken backend is called on every request).
 	CircuitBreaker *BreakerConfig `yaml:"circuit_breaker,omitempty"`
+	// AuthRequired gates the route behind JWT bearer auth when true.
+	AuthRequired bool `yaml:"auth_required"`
 }
 
 // RateLimitConfig configures a token-bucket limiter for one route.
@@ -113,6 +122,10 @@ func (c *Config) validate() error {
 			if r.RateLimit.Burst <= 0 {
 				return fmt.Errorf("routes[%d] (%s): rate_limit.burst must be > 0", i, r.Path)
 			}
+		}
+
+		if r.AuthRequired && c.Auth.JWTSecret == "" {
+			return fmt.Errorf("routes[%d] (%s): auth_required is true but auth.jwt_secret is not set", i, r.Path)
 		}
 
 		if cb := r.CircuitBreaker; cb != nil {

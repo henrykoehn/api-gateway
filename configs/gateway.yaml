@@ -1,6 +1,9 @@
 server:
   addr: ":8080"
 
+auth:
+  jwt_secret: "demo-only-secret-change-me"
+
 routes:
   - path: "/api/hello/"
     target: "http://localhost:9001"
@@ -15,3 +18,7 @@ routes:
         path: "/"
         interval_seconds: 1
         timeout_seconds: 1
+
+  - path: "/api/secure/"
+    target: "http://localhost:9001"
+    auth_required: true

@@ -54,9 +54,19 @@ func Build(cfg *config.Config) (http.Handler, error) {
 		}
 
 		if route.RateLimit != nil {
+			keyFunc := middleware.ClientIPKey
+			if route.AuthRequired {
+				// Auth (wrapped below) runs before rate limiting, so
+				// claims are already in context by the time this fires.
+				keyFunc = middleware.JWTSubjectKey
+			}
 			limiter := ratelimiter.New(float64(route.RateLimit.Burst), route.RateLimit.RequestsPerSecond)
 			go evictIdleBuckets(limiter)
-			handler = middleware.RateLimit(limiter, middleware.ClientIPKey)(handler)
+			handler = middleware.RateLimit(limiter, keyFunc)(handler)
+		}
+
+		if route.AuthRequired {
+			handler = middleware.Auth(cfg.Auth.JWTSecret)(handler)
 		}
 
 		mux.Handle(route.Path, http.StripPrefix(route.Path, handler))
