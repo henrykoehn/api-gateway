@@ -1,0 +1,32 @@
+services:
+  gateway:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./gateway.compose.yaml:/configs/gateway.yaml:ro
+    depends_on:
+      - mock-backend-a
+      - mock-backend-b
+
+  mock-backend-a:
+    build:
+      context: ..
+      dockerfile: deploy/mock-backend/Dockerfile
+    environment:
+      - BACKEND_NAME=backend-a
+      - PORT=9000
+    expose:
+      - "9000"
+
+  mock-backend-b:
+    build:
+      context: ..
+      dockerfile: deploy/mock-backend/Dockerfile
+    environment:
+      - BACKEND_NAME=backend-b
+      - PORT=9000
+    expose:
+      - "9000"

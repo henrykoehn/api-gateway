@@ -1,0 +1,27 @@
+server:
+  addr: ":8080"
+
+auth:
+  jwt_secret: "demo-only-secret-change-me"
+
+routes:
+  - path: "/api/a/"
+    target: "http://mock-backend-a:9000"
+    rate_limit:
+      requests_per_second: 5
+      burst: 10
+    circuit_breaker:
+      failure_threshold: 2
+      reset_timeout_seconds: 5
+      success_threshold: 1
+      health_check:
+        path: "/health"
+        interval_seconds: 2
+        timeout_seconds: 1
+
+  - path: "/api/b/"
+    target: "http://mock-backend-b:9000"
+
+  - path: "/api/protected/"
+    target: "http://mock-backend-a:9000"
+    auth_required: true
