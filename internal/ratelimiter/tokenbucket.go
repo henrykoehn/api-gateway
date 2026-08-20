@@ -72,6 +72,14 @@ func (l *Limiter) bucketFor(key string) *bucket {
 	return b
 }
 
+// BucketCount returns the number of distinct clients currently tracked,
+// for observability (see gateway_rate_limiter_active_buckets).
+func (l *Limiter) BucketCount() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.buckets)
+}
+
 // EvictIdle removes buckets untouched for longer than maxIdle, bounding
 // memory growth from clients seen once. Intended to be called
 // periodically from a background goroutine.

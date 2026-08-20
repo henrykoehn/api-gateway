@@ -10,19 +10,37 @@ import (
 
 	"github.com/henrykoehn/api-gateway/internal/breaker"
 	"github.com/henrykoehn/api-gateway/internal/config"
+	"github.com/henrykoehn/api-gateway/internal/metrics"
 	"github.com/henrykoehn/api-gateway/internal/middleware"
 	"github.com/henrykoehn/api-gateway/internal/proxy"
 	"github.com/henrykoehn/api-gateway/internal/ratelimiter"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // idleBucketTTL bounds rate-limiter memory growth from clients seen once.
 const idleBucketTTL = 5 * time.Minute
 
+// Reserved paths for the gateway's own observability endpoints. These
+// are registered as exact matches, which net/http.ServeMux always
+// prefers over a broader backend route prefix (e.g. "/"), so a
+// catch-all route can never shadow them.
+const (
+	MetricsPath = "/metrics"
+	HealthzPath = "/healthz"
+)
+
 // Build constructs a ServeMux that routes each configured path prefix
-// to its backend's reverse proxy, applying per-route rate limiting and
-// circuit breaking where configured.
+// to its backend's reverse proxy, applying per-route rate limiting,
+// circuit breaking, and auth where configured, plus the gateway's own
+// /metrics and /healthz endpoints.
 func Build(cfg *config.Config) (http.Handler, error) {
 	mux := http.NewServeMux()
+
+	mux.Handle(MetricsPath, promhttp.Handler())
+	mux.HandleFunc(HealthzPath, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
 
 	for _, route := range cfg.Routes {
 		var brk *breaker.Breaker
@@ -32,6 +50,7 @@ func Build(cfg *config.Config) (http.Handler, error) {
 				ResetTimeout:     secondsToDuration(route.CircuitBreaker.ResetTimeoutSeconds),
 				SuccessThreshold: route.CircuitBreaker.SuccessThreshold,
 			})
+			go sampleBreakerState(route.Target, brk)
 
 			if hc := route.CircuitBreaker.HealthCheck; hc != nil {
 				checker := breaker.NewHealthChecker(
@@ -61,7 +80,7 @@ func Build(cfg *config.Config) (http.Handler, error) {
 				keyFunc = middleware.JWTSubjectKey
 			}
 			limiter := ratelimiter.New(float64(route.RateLimit.Burst), route.RateLimit.RequestsPerSecond)
-			go evictIdleBuckets(limiter)
+			go sampleActiveBuckets(route.Path, limiter)
 			handler = middleware.RateLimit(limiter, keyFunc)(handler)
 		}
 
@@ -69,20 +88,44 @@ func Build(cfg *config.Config) (http.Handler, error) {
 			handler = middleware.Auth(cfg.Auth.JWTSecret)(handler)
 		}
 
+		handler = middleware.Metrics(route.Path)(handler)
+
 		mux.Handle(route.Path, http.StripPrefix(route.Path, handler))
 	}
 
 	return mux, nil
 }
 
-// evictIdleBuckets periodically prunes idle rate-limiter state. It runs
-// for the lifetime of the process; there's only ever one gateway
-// process per route, so it needs no explicit shutdown.
-func evictIdleBuckets(limiter *ratelimiter.Limiter) {
+// sampleActiveBuckets periodically evicts idle rate-limiter state and
+// publishes the remaining bucket count as a gauge. It runs for the
+// lifetime of the process, matching the one-gateway-process-per-route
+// lifecycle, so it needs no explicit shutdown.
+func sampleActiveBuckets(route string, limiter *ratelimiter.Limiter) {
+	update := func() {
+		limiter.EvictIdle(idleBucketTTL)
+		metrics.RateLimiterActiveBuckets.WithLabelValues(route).Set(float64(limiter.BucketCount()))
+	}
+	update()
+
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for range ticker.C {
-		limiter.EvictIdle(idleBucketTTL)
+		update()
+	}
+}
+
+// sampleBreakerState periodically publishes a breaker's state as a
+// gauge, for the lifetime of the process.
+func sampleBreakerState(backend string, brk *breaker.Breaker) {
+	update := func() {
+		metrics.CircuitBreakerState.WithLabelValues(backend).Set(float64(brk.State()))
+	}
+	update()
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		update()
 	}
 }
 
