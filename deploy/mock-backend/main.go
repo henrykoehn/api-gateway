@@ -23,11 +23,11 @@ func main() {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if unhealthy.Load() {
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"backend": name, "error": "simulated failure"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"backend": name, "error": "simulated failure"})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"backend": name, "path": r.URL.Path})
+		_ = json.NewEncoder(w).Encode(map[string]string{"backend": name, "path": r.URL.Path})
 	})
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -43,11 +43,11 @@ func main() {
 	// circuit breaker trip and recover.
 	mux.HandleFunc("/fail", func(w http.ResponseWriter, r *http.Request) {
 		unhealthy.Store(true)
-		w.Write([]byte("backend now failing\n"))
+		_, _ = w.Write([]byte("backend now failing\n"))
 	})
 	mux.HandleFunc("/recover", func(w http.ResponseWriter, r *http.Request) {
 		unhealthy.Store(false)
-		w.Write([]byte("backend recovered\n"))
+		_, _ = w.Write([]byte("backend recovered\n"))
 	})
 
 	log.Printf("mock backend %q listening on :%s", name, port)

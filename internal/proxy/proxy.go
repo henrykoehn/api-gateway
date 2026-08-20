@@ -24,12 +24,13 @@ func New(target string, brk *breaker.Breaker) (http.Handler, error) {
 		return nil, err
 	}
 
-	rp := httputil.NewSingleHostReverseProxy(targetURL)
-
-	origDirector := rp.Director
-	rp.Director = func(r *http.Request) {
-		origDirector(r)
-		r.Host = targetURL.Host
+	rp := &httputil.ReverseProxy{
+		// Rewrite is the Director's replacement (Director is deprecated
+		// as of Go 1.26). SetURL also rewrites the outbound Host header
+		// to match the target, which is the behavior we want here.
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(targetURL)
+		},
 	}
 
 	rp.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {

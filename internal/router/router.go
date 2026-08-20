@@ -39,7 +39,7 @@ func Build(cfg *config.Config) (http.Handler, error) {
 	mux.Handle(MetricsPath, promhttp.Handler())
 	mux.HandleFunc(HealthzPath, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	})
 
 	for _, route := range cfg.Routes {

@@ -61,7 +61,7 @@ func (h *HealthChecker) check(ctx context.Context) {
 		h.breaker.ForceState(Open)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		h.breaker.ForceState(Closed)
